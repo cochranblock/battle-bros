@@ -55,9 +55,22 @@ enum Cmd {
         #[arg(short, long, default_value = "export")]
         output: std::path::PathBuf,
     },
+    /// Scrape regulations from public sources. All mil regs are public domain.
+    Scrape {
+        /// Domains to scrape: ucmj, ar670, all (default: all)
+        #[arg(short, long, default_value = "all")]
+        domains: Vec<String>,
+        /// Output directory for scraped text files
+        #[arg(short, long, default_value = "docs")]
+        output: std::path::PathBuf,
+        /// Auto-ingest after scraping
+        #[arg(long)]
+        ingest: bool,
+    },
 }
 
 mod regs;
+mod scraper;
 mod sims;
 
 fn main() -> anyhow::Result<()> {
@@ -79,6 +92,22 @@ fn main() -> anyhow::Result<()> {
         }
         Some(Cmd::Export { output }) => {
             sims::export(&output)?;
+        }
+        Some(Cmd::Scrape { domains, output, ingest }) => {
+            scraper::scrape_all(&output, &domains)?;
+            if ingest {
+                // Auto-ingest each scraped file
+                for entry in std::fs::read_dir(&output)? {
+                    let entry = entry?;
+                    let path = entry.path();
+                    if path.extension().map(|e| e == "txt").unwrap_or(false) {
+                        let domain = path.file_stem().unwrap().to_string_lossy()
+                            .replace("_scraped", "");
+                        println!("auto-ingest: {} as {}", path.display(), domain);
+                        regs::ingest(&path, &domain)?;
+                    }
+                }
+            }
         }
         None => {
             // Default: interactive sim, like a board president grilling you
